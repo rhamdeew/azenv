@@ -41,7 +41,7 @@ jobs:
             output="${output}.exe"
           fi
           echo "Building for ${os}/${arch}..."
-          GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -o "releases/${output}"
+          GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -ldflags="-s -w" -o "releases/${output}"
           cd releases
           if [ "$os" = "windows" ]; then
             zip "${output}.zip" "${output}"
