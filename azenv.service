@@ -1,0 +1,22 @@
+[Unit]
+Description=AZenv Go Environment Variables Server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+ExecStart=/usr/local/bin/azenv -p 8080
+Restart=on-failure
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=3
+WorkingDirectory=/tmp
+
+# Security hardening options
+ProtectSystem=full
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
