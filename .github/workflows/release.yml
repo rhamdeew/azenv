@@ -5,6 +5,11 @@ on:
     tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
+
+# Add permissions section
+permissions:
+  contents: write # This is required for creating releases
+
 jobs:
   build:
     runs-on: ubuntu-latest
