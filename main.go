@@ -1,12 +1,113 @@
 package main
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"flag"
 	"fmt"
+	"math/big"
+	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
+
+// generateCert creates a self-signed certificate and key, saving them to the specified paths
+func generateCert(certPath, keyPath string) error {
+	// Create directory for cert if it doesn't exist
+	certDir := filepath.Dir(certPath)
+	if err := os.MkdirAll(certDir, 0755); err != nil {
+		return fmt.Errorf("failed to create certificate directory: %w", err)
+	}
+
+	keyDir := filepath.Dir(keyPath)
+	if err := os.MkdirAll(keyDir, 0755); err != nil {
+		return fmt.Errorf("failed to create key directory: %w", err)
+	}
+
+	// Generate private key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return fmt.Errorf("failed to generate private key: %w", err)
+	}
+
+	// Prepare certificate template
+	notBefore := time.Now()
+	notAfter := notBefore.Add(365 * 24 * time.Hour) // Valid for 1 year
+
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		return fmt.Errorf("failed to generate serial number: %w", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"AZenv Self-Signed Certificate"},
+			CommonName:   "localhost",
+		},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"localhost"},
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
+	}
+
+	// Create the certificate
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		return fmt.Errorf("failed to create certificate: %w", err)
+	}
+
+	// Save the certificate
+	certOut, err := os.Create(certPath)
+	if err != nil {
+		return fmt.Errorf("failed to open %s for writing: %w", certPath, err)
+	}
+	defer certOut.Close()
+
+	if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
+		return fmt.Errorf("failed to write certificate to file: %w", err)
+	}
+
+	// Save the private key
+	keyOut, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to open %s for writing: %w", keyPath, err)
+	}
+	defer keyOut.Close()
+
+	privBlock := &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+	}
+
+	if err := pem.Encode(keyOut, privBlock); err != nil {
+		return fmt.Errorf("failed to write private key to file: %w", err)
+	}
+
+	fmt.Printf("Generated self-signed certificate at %s and key at %s\n", certPath, keyPath)
+	return nil
+}
+
+// certFilesExist checks if both certificate and key files exist
+func certFilesExist(certPath, keyPath string) bool {
+	if _, err := os.Stat(certPath); os.IsNotExist(err) {
+		return false
+	}
+	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+		return false
+	}
+	return true
+}
 
 func azenvHandler(w http.ResponseWriter, r *http.Request) {
 	// Only respond to /azenv path
@@ -37,7 +138,7 @@ func azenvHandler(w http.ResponseWriter, r *http.Request) {
 		if strings.ToLower(name) == "host" {
 			continue
 		}
-		
+
 		// Format header name to match PHP's $_SERVER convention (HTTP_*)
 		headerName := "HTTP_" + strings.ToUpper(strings.Replace(name, "-", "_", -1))
 		for _, value := range values {
@@ -56,16 +157,44 @@ func azenvHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Define command line flag for port
-	port := flag.Int("p", 8080, "port to listen on")
+	// Define command line flags
+	httpPort := flag.Int("p", 8080, "HTTP port to listen on")
+	httpsPort := flag.Int("sp", 8443, "HTTPS port to listen on")
+	enableHTTPS := flag.Bool("ssl", false, "Enable HTTPS server")
+	certPath := flag.String("cert", "cert/server.crt", "Path to SSL certificate file")
+	keyPath := flag.String("key", "cert/server.key", "Path to SSL key file")
+	genCert := flag.Bool("gen-cert", false, "Generate a self-signed certificate if none exists")
 	flag.Parse()
 
-	// Register handler only for /azenv path
+	// Generate certificate if requested and files don't exist
+	if *enableHTTPS && (*genCert || !certFilesExist(*certPath, *keyPath)) {
+		fmt.Println("Generating self-signed certificate...")
+		if err := generateCert(*certPath, *keyPath); err != nil {
+			fmt.Printf("Error generating certificate: %s\n", err)
+			*enableHTTPS = false // Disable HTTPS if certificate generation fails
+		}
+	}
+
+	// Register handler
 	http.HandleFunc("/", azenvHandler)
-	
-	// Start the server
-	serverAddr := fmt.Sprintf(":%d", *port)
-	fmt.Printf("Server starting on %s\n", serverAddr)
-	fmt.Printf("Access environment variables at http://localhost%s/azenv\n", serverAddr)
-	http.ListenAndServe(serverAddr, nil)
+
+	// Start servers
+	if *enableHTTPS {
+		// Start HTTPS server in a goroutine
+		httpsAddr := fmt.Sprintf(":%d", *httpsPort)
+		go func() {
+			fmt.Printf("HTTPS server starting on %s\n", httpsAddr)
+			fmt.Printf("Access environment variables at https://localhost%s/azenv\n", httpsAddr)
+			err := http.ListenAndServeTLS(httpsAddr, *certPath, *keyPath, nil)
+			if err != nil {
+				fmt.Printf("HTTPS server error: %s\n", err)
+			}
+		}()
+	}
+
+	// Always start HTTP server (main thread)
+	httpAddr := fmt.Sprintf(":%d", *httpPort)
+	fmt.Printf("HTTP server starting on %s\n", httpAddr)
+	fmt.Printf("Access environment variables at http://localhost%s/azenv\n", httpAddr)
+	http.ListenAndServe(httpAddr, nil)
 }
