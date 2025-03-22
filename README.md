@@ -8,6 +8,7 @@ AZenv is a lightweight Go web server that displays environment variables and HTT
 - Shows HTTP request details (URI, method, headers)
 - Provides request timing information
 - Runs as a standalone web server
+- Supports HTTPS with self-signed certificates
 - Cross-platform support (Linux, macOS, Windows)
 
 ## Installation
@@ -19,7 +20,7 @@ AZenv is a lightweight Go web server that displays environment variables and HTT
    ```bash
    # For Linux/macOS
    tar -xzf azenv-{os}-{arch}.tar.gz
-   
+
    # For Windows
    unzip azenv-windows-amd64.exe.zip
    ```
@@ -28,7 +29,7 @@ AZenv is a lightweight Go web server that displays environment variables and HTT
    # Linux/macOS
    sudo mv azenv-{os}-{arch} /usr/local/bin/azenv
    chmod +x /usr/local/bin/azenv
-   
+
    # Windows
    # Move to a directory in your PATH
    ```
@@ -73,22 +74,44 @@ AZenv is a lightweight Go web server that displays environment variables and HTT
 ### Running the Server
 
 ```bash
-# Run on default port (8080)
+# Run HTTP on default port (8080)
 azenv
 
-# Run on a specific port
+# Run HTTP on a specific port
 azenv -p 3000
+
+# Run both HTTP (8080) and HTTPS (8443) with auto-generated self-signed certificate
+azenv -ssl -gen-cert
+
+# Run HTTP and HTTPS on custom ports
+azenv -p 3000 -sp 4430 -ssl -gen-cert
+
+# Use existing certificate and key files
+azenv -ssl -cert /path/to/certificate.crt -key /path/to/private.key
 ```
+
+### Command Line Options
+
+- `-p`: HTTP port (default: 8080)
+- `-sp`: HTTPS port (default: 8443)
+- `-ssl`: Enable HTTPS server
+- `-gen-cert`: Auto-generate a self-signed certificate if it doesn't exist
+- `-cert`: Path to certificate file (default: cert/server.crt)
+- `-key`: Path to private key file (default: cert/server.key)
 
 ### Accessing the Environment Information
 
 Once the server is running, open your web browser and navigate to:
 
 ```
+# For HTTP
 http://localhost:8080/azenv
+
+# For HTTPS (when enabled)
+https://localhost:8443/azenv
 ```
 
-This will display all the environment variables and request information in your browser.
+When accessing via HTTPS with a self-signed certificate, you'll need to accept the browser security warning.
 
 ## Contributing
 
