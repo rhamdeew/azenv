@@ -142,6 +142,9 @@ azenv
 # Run HTTP on a specific port
 azenv -p 3000
 
+# Bind to specific host/IP (IPv4 by default)
+azenv -host 0.0.0.0 -p 8080
+
 # Run both HTTP (8080) and HTTPS (8443) with auto-generated self-signed certificate
 azenv -ssl -gen-cert
 
@@ -156,6 +159,7 @@ azenv -ssl -cert /path/to/certificate.crt -key /path/to/private.key
 
 - `-p`: HTTP port (default: 8080)
 - `-sp`: HTTPS port (default: 8443)
+- `-host`: Host/IP to bind (default: 0.0.0.0, listens on IPv4)
 - `-ssl`: Enable HTTPS server
 - `-gen-cert`: Auto-generate a self-signed certificate if it doesn't exist
 - `-cert`: Path to certificate file (default: cert/server.crt)

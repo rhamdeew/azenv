@@ -160,18 +160,36 @@ func azenvHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Define command line flags
-	httpPort := flag.Int("p", 8080, "HTTP port to listen on")
-	httpsPort := flag.Int("sp", 8443, "HTTPS port to listen on")
-	enableHTTPS := flag.Bool("ssl", false, "Enable HTTPS server")
-	certPath := flag.String("cert", "cert/server.crt", "Path to SSL certificate file")
-	keyPath := flag.String("key", "cert/server.key", "Path to SSL key file")
-	genCert := flag.Bool("gen-cert", false, "Generate a self-signed certificate if none exists")
-	letsEncrypt := flag.Bool("lets-encrypt", false, "Use Let's Encrypt for automatic SSL certificates")
-	domain := flag.String("domain", "", "Domain name for Let's Encrypt certificate (required with -lets-encrypt)")
-	cacheDir := flag.String("cache-dir", "cert-cache", "Directory to cache Let's Encrypt certificates")
-	challengePort := flag.Int("challenge-port", 80, "Port for Let's Encrypt HTTP challenge (0 to disable built-in challenge server)")
-	flag.Parse()
+    // Define command line flags
+    httpPort := flag.Int("p", 8080, "HTTP port to listen on")
+    host := flag.String("host", "0.0.0.0", "Host/IP to bind (default IPv4)")
+    httpsPort := flag.Int("sp", 8443, "HTTPS port to listen on")
+    enableHTTPS := flag.Bool("ssl", false, "Enable HTTPS server")
+    certPath := flag.String("cert", "cert/server.crt", "Path to SSL certificate file")
+    keyPath := flag.String("key", "cert/server.key", "Path to SSL key file")
+    genCert := flag.Bool("gen-cert", false, "Generate a self-signed certificate if none exists")
+    letsEncrypt := flag.Bool("lets-encrypt", false, "Use Let's Encrypt for automatic SSL certificates")
+    domain := flag.String("domain", "", "Domain name for Let's Encrypt certificate (required with -lets-encrypt)")
+    cacheDir := flag.String("cache-dir", "cert-cache", "Directory to cache Let's Encrypt certificates")
+    challengePort := flag.Int("challenge-port", 80, "Port for Let's Encrypt HTTP challenge (0 to disable built-in challenge server)")
+    flag.Parse()
+
+    // Helpers for address formatting and network selection
+    joinHostPort := func(h string, port int) string {
+        if h == "" {
+            h = "0.0.0.0"
+        }
+        if strings.Contains(h, ":") && !strings.HasPrefix(h, "[") {
+            return fmt.Sprintf("[%s]:%d", h, port)
+        }
+        return fmt.Sprintf("%s:%d", h, port)
+    }
+    pickNetwork := func(h string) string {
+        if strings.Contains(h, ":") || strings.HasPrefix(h, "[") {
+            return "tcp6"
+        }
+        return "tcp4"
+    }
 
 	// Validate Let's Encrypt configuration
 	if *letsEncrypt && *enableHTTPS {
@@ -195,8 +213,8 @@ func main() {
 	http.HandleFunc("/", azenvHandler)
 
 	// Start servers
-	if *enableHTTPS {
-		httpsAddr := fmt.Sprintf(":%d", *httpsPort)
+    if *enableHTTPS {
+        httpsAddr := joinHostPort(*host, *httpsPort)
 		
 		if *letsEncrypt {
 			// Let's Encrypt setup
@@ -215,44 +233,64 @@ func main() {
 			}
 
 			// Start HTTP server for ACME challenge (if enabled)
-			if *challengePort != 0 {
-				go func() {
-					challengeAddr := fmt.Sprintf(":%d", *challengePort)
-					fmt.Printf("Starting HTTP challenge server on %s for Let's Encrypt validation\n", challengeAddr)
-					err := http.ListenAndServe(challengeAddr, certManager.HTTPHandler(nil))
-					if err != nil {
-						fmt.Printf("HTTP challenge server error: %s\n", err)
-					}
-				}()
-			} else {
-				fmt.Println("Built-in challenge server disabled. Ensure reverse proxy handles /.well-known/acme-challenge/")
-			}
+            if *challengePort != 0 {
+                go func() {
+                    challengeAddr := joinHostPort(*host, *challengePort)
+                    fmt.Printf("Starting HTTP challenge server on %s for Let's Encrypt validation\n", challengeAddr)
+                    ln, err := net.Listen(pickNetwork(*host), challengeAddr)
+                    if err != nil {
+                        fmt.Printf("HTTP challenge server error (listen): %s\n", err)
+                        return
+                    }
+                    err = http.Serve(ln, certManager.HTTPHandler(nil))
+                    if err != nil {
+                        fmt.Printf("HTTP challenge server error: %s\n", err)
+                    }
+                }()
+            } else {
+                fmt.Println("Built-in challenge server disabled. Ensure reverse proxy handles /.well-known/acme-challenge/")
+            }
 
 			// Start HTTPS server with Let's Encrypt
-			go func() {
-				fmt.Printf("HTTPS server starting on %s with Let's Encrypt\n", httpsAddr)
-				fmt.Printf("Access environment variables at https://%s%s/azenv\n", *domain, httpsAddr)
-				err := server.ListenAndServeTLS("", "")
-				if err != nil {
-					fmt.Printf("HTTPS server error: %s\n", err)
-				}
-			}()
+            go func() {
+                fmt.Printf("HTTPS server starting on %s with Let's Encrypt\n", httpsAddr)
+                fmt.Printf("Access environment variables at https://%s:%d/azenv\n", *domain, *httpsPort)
+                ln, err := net.Listen(pickNetwork(*host), httpsAddr)
+                if err != nil {
+                    fmt.Printf("HTTPS server error (listen): %s\n", err)
+                    return
+                }
+                err = server.ServeTLS(ln, "", "")
+                if err != nil {
+                    fmt.Printf("HTTPS server error: %s\n", err)
+                }
+            }()
 		} else {
 			// Traditional certificate setup
-			go func() {
-				fmt.Printf("HTTPS server starting on %s\n", httpsAddr)
-				fmt.Printf("Access environment variables at https://localhost%s/azenv\n", httpsAddr)
-				err := http.ListenAndServeTLS(httpsAddr, *certPath, *keyPath, nil)
-				if err != nil {
-					fmt.Printf("HTTPS server error: %s\n", err)
-				}
-			}()
-		}
-	}
+            go func() {
+                fmt.Printf("HTTPS server starting on %s\n", httpsAddr)
+                fmt.Printf("Access environment variables at https://%s/azenv\n", httpsAddr)
+                ln, err := net.Listen(pickNetwork(*host), httpsAddr)
+                if err != nil {
+                    fmt.Printf("HTTPS server error (listen): %s\n", err)
+                    return
+                }
+                err = http.ServeTLS(ln, nil, *certPath, *keyPath)
+                if err != nil {
+                    fmt.Printf("HTTPS server error: %s\n", err)
+                }
+            }()
+        }
+    }
 
-	// Always start HTTP server (main thread)
-	httpAddr := fmt.Sprintf(":%d", *httpPort)
-	fmt.Printf("HTTP server starting on %s\n", httpAddr)
-	fmt.Printf("Access environment variables at http://localhost%s/azenv\n", httpAddr)
-	http.ListenAndServe(httpAddr, nil)
+    // Always start HTTP server (main thread)
+    httpAddr := joinHostPort(*host, *httpPort)
+    fmt.Printf("HTTP server starting on %s\n", httpAddr)
+    fmt.Printf("Access environment variables at http://%s/azenv\n", httpAddr)
+    ln, err := net.Listen(pickNetwork(*host), httpAddr)
+    if err != nil {
+        fmt.Printf("HTTP server error (listen): %s\n", err)
+        os.Exit(1)
+    }
+    http.Serve(ln, nil)
 }
