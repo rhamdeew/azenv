@@ -6,15 +6,31 @@ After=network.target
 Type=simple
 User=www-data
 Group=www-data
+# Option 1: Self-signed certificate (default)
 ExecStart=/usr/local/bin/azenv -p 8080 -sp 8443 -ssl -gen-cert
+
+# Option 2: Let's Encrypt with built-in challenge server (uncomment and modify)
+#ExecStart=/usr/local/bin/azenv -p 8080 -sp 8443 -ssl -lets-encrypt -domain yourdomain.com -cache-dir /var/lib/azenv/certs
+
+# Option 3: Let's Encrypt with reverse proxy (recommended with Nginx)
+#ExecStart=/usr/local/bin/azenv -p 9080 -sp 9443 -ssl -lets-encrypt -domain yourdomain.com -challenge-port 0 -cache-dir /var/lib/azenv/certs
+
+# Option 4: Custom certificates
+#ExecStart=/usr/local/bin/azenv -p 8080 -sp 8443 -ssl -cert /path/to/cert.pem -key /path/to/key.pem
+
 Restart=on-failure
 RestartSec=5
 StartLimitInterval=60
 StartLimitBurst=3
-WorkingDirectory=/tmp
+WorkingDirectory=/var/lib/azenv
+
+# Create certificate cache directory
+ExecStartPre=/bin/mkdir -p /var/lib/azenv/certs
+ExecStartPre=/bin/chown www-data:www-data /var/lib/azenv/certs
 
 # Security hardening options
-ProtectSystem=full
+ProtectSystem=strict
+ReadWritePaths=/var/lib/azenv
 NoNewPrivileges=true
 PrivateTmp=true
 

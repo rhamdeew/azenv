@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -15,6 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/acme/autocert"
 )
 
 // generateCert creates a self-signed certificate and key, saving them to the specified paths
@@ -164,14 +167,27 @@ func main() {
 	certPath := flag.String("cert", "cert/server.crt", "Path to SSL certificate file")
 	keyPath := flag.String("key", "cert/server.key", "Path to SSL key file")
 	genCert := flag.Bool("gen-cert", false, "Generate a self-signed certificate if none exists")
+	letsEncrypt := flag.Bool("lets-encrypt", false, "Use Let's Encrypt for automatic SSL certificates")
+	domain := flag.String("domain", "", "Domain name for Let's Encrypt certificate (required with -lets-encrypt)")
+	cacheDir := flag.String("cache-dir", "cert-cache", "Directory to cache Let's Encrypt certificates")
+	challengePort := flag.Int("challenge-port", 80, "Port for Let's Encrypt HTTP challenge (0 to disable built-in challenge server)")
 	flag.Parse()
 
-	// Generate certificate if requested and files don't exist
-	if *enableHTTPS && (*genCert || !certFilesExist(*certPath, *keyPath)) {
-		fmt.Println("Generating self-signed certificate...")
-		if err := generateCert(*certPath, *keyPath); err != nil {
-			fmt.Printf("Error generating certificate: %s\n", err)
-			*enableHTTPS = false // Disable HTTPS if certificate generation fails
+	// Validate Let's Encrypt configuration
+	if *letsEncrypt && *enableHTTPS {
+		if *domain == "" {
+			fmt.Println("Error: -domain is required when using -lets-encrypt")
+			os.Exit(1)
+		}
+		fmt.Printf("Using Let's Encrypt for domain: %s\n", *domain)
+	} else if !*letsEncrypt && *enableHTTPS {
+		// Generate certificate if requested and files don't exist
+		if *genCert || !certFilesExist(*certPath, *keyPath) {
+			fmt.Println("Generating self-signed certificate...")
+			if err := generateCert(*certPath, *keyPath); err != nil {
+				fmt.Printf("Error generating certificate: %s\n", err)
+				*enableHTTPS = false // Disable HTTPS if certificate generation fails
+			}
 		}
 	}
 
@@ -180,16 +196,58 @@ func main() {
 
 	// Start servers
 	if *enableHTTPS {
-		// Start HTTPS server in a goroutine
 		httpsAddr := fmt.Sprintf(":%d", *httpsPort)
-		go func() {
-			fmt.Printf("HTTPS server starting on %s\n", httpsAddr)
-			fmt.Printf("Access environment variables at https://localhost%s/azenv\n", httpsAddr)
-			err := http.ListenAndServeTLS(httpsAddr, *certPath, *keyPath, nil)
-			if err != nil {
-				fmt.Printf("HTTPS server error: %s\n", err)
+		
+		if *letsEncrypt {
+			// Let's Encrypt setup
+			certManager := autocert.Manager{
+				Prompt:     autocert.AcceptTOS,
+				HostPolicy: autocert.HostWhitelist(*domain),
+				Cache:      autocert.DirCache(*cacheDir),
 			}
-		}()
+
+			// Create TLS config with autocert
+			server := &http.Server{
+				Addr:      httpsAddr,
+				TLSConfig: &tls.Config{
+					GetCertificate: certManager.GetCertificate,
+				},
+			}
+
+			// Start HTTP server for ACME challenge (if enabled)
+			if *challengePort != 0 {
+				go func() {
+					challengeAddr := fmt.Sprintf(":%d", *challengePort)
+					fmt.Printf("Starting HTTP challenge server on %s for Let's Encrypt validation\n", challengeAddr)
+					err := http.ListenAndServe(challengeAddr, certManager.HTTPHandler(nil))
+					if err != nil {
+						fmt.Printf("HTTP challenge server error: %s\n", err)
+					}
+				}()
+			} else {
+				fmt.Println("Built-in challenge server disabled. Ensure reverse proxy handles /.well-known/acme-challenge/")
+			}
+
+			// Start HTTPS server with Let's Encrypt
+			go func() {
+				fmt.Printf("HTTPS server starting on %s with Let's Encrypt\n", httpsAddr)
+				fmt.Printf("Access environment variables at https://%s%s/azenv\n", *domain, httpsAddr)
+				err := server.ListenAndServeTLS("", "")
+				if err != nil {
+					fmt.Printf("HTTPS server error: %s\n", err)
+				}
+			}()
+		} else {
+			// Traditional certificate setup
+			go func() {
+				fmt.Printf("HTTPS server starting on %s\n", httpsAddr)
+				fmt.Printf("Access environment variables at https://localhost%s/azenv\n", httpsAddr)
+				err := http.ListenAndServeTLS(httpsAddr, *certPath, *keyPath, nil)
+				if err != nil {
+					fmt.Printf("HTTPS server error: %s\n", err)
+				}
+			}()
+		}
 	}
 
 	// Always start HTTP server (main thread)
