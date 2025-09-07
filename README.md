@@ -55,7 +55,31 @@ AZenv is a lightweight Go web server that displays environment variables and HTT
 
 ### Using Docker
 
-1. Using Docker Compose (recommended):
+#### Using Prebuilt Docker Image
+
+The easiest way to run AZenv is using the prebuilt Docker image from GitHub Container Registry:
+
+```bash
+# Run HTTP only (port 8080)
+docker run -d -p 8080:8080 --name azenv ghcr.io/rhamdeew/azenv:latest
+
+# Run with HTTPS and self-signed certificates
+docker run -d -p 8080:8080 -p 8443:8443 -v $(pwd)/cert:/app/cert --name azenv \
+  ghcr.io/rhamdeew/azenv:latest ./azenv -ssl -gen-cert
+
+# Run with Let's Encrypt (requires domain and port 80 access)
+docker run -d -p 8080:8080 -p 8443:8443 -p 80:80 -v $(pwd)/cert-cache:/app/cert-cache --name azenv \
+  ghcr.io/rhamdeew/azenv:latest ./azenv -ssl -lets-encrypt -domain example.com
+```
+
+Available image tags:
+- `ghcr.io/rhamdeew/azenv:latest` - Latest stable release
+- `ghcr.io/rhamdeew/azenv:v1.x.x` - Specific version tags
+- `ghcr.io/rhamdeew/azenv:main` - Latest development build
+
+#### Using Docker Compose (Recommended)
+
+1. Using Docker Compose with prebuilt image:
    ```bash
    # Clone the repository
    git clone https://github.com/rhamdeew/azenv.git
@@ -68,7 +92,7 @@ AZenv is a lightweight Go web server that displays environment variables and HTT
    docker-compose logs -f azenv
    ```
 
-2. Using Docker directly:
+2. Using Docker directly (building from source):
    ```bash
    # Build the image
    docker build -t azenv .
@@ -77,7 +101,7 @@ AZenv is a lightweight Go web server that displays environment variables and HTT
    docker run -d -p 8080:8080 --name azenv azenv
    
    # Run with HTTPS and self-signed certificates
-   docker run -d -p 8080:8080 -p 8443:8443 -v ./cert:/app/cert --name azenv azenv ./azenv -ssl -gen-cert
+   docker run -d -p 8080:8080 -p 8443:8443 -v $(pwd)/cert:/app/cert --name azenv azenv ./azenv -ssl -gen-cert
    ```
 
 3. Docker configuration options:

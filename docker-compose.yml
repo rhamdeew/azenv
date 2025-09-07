@@ -2,7 +2,10 @@ version: '3.8'
 
 services:
   azenv:
-    build: .
+    # Use pre-built image from GitHub Container Registry
+    image: ghcr.io/rhamdeew/azenv:latest
+    # For local development, uncomment the line below and comment the image line above:
+    # build: .
     container_name: azenv
     restart: unless-stopped
     ports:
