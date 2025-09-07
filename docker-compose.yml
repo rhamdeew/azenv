@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  azenv:
+    build: .
+    container_name: azenv
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    volumes:
+      # Persist certificates
+      - ./cert:/app/cert
+      - ./cert-cache:/app/cert-cache
+    environment:
+      # Set timezone (optional)
+      - TZ=UTC
+    networks:
+      - azenv-network
+    # Uncomment and modify for different configurations:
+    # command: ["./azenv", "-p", "8080", "-ssl", "-gen-cert"]
+    # command: ["./azenv", "-p", "8080", "-sp", "8443", "-ssl", "-lets-encrypt", "-domain", "example.com"]
+
+  # Optional: Nginx reverse proxy
+  # Uncomment this section if you want to use Nginx as a reverse proxy
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: azenv-nginx
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./cert-cache:/etc/nginx/certs:ro
+  #   depends_on:
+  #     - azenv
+  #   networks:
+  #     - azenv-network
+
+networks:
+  azenv-network:
+    driver: bridge
+
+volumes:
+  # Optional: Use named volumes instead of bind mounts
+  # cert-data:
+  # cert-cache-data:

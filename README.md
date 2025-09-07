@@ -9,7 +9,9 @@ AZenv is a lightweight Go web server that displays environment variables and HTT
 - Provides request timing information
 - Runs as a standalone web server
 - Supports HTTPS with self-signed certificates
+- Let's Encrypt automatic certificate management
 - Cross-platform support (Linux, macOS, Windows)
+- Docker support with lightweight Alpine-based images
 
 ## Installation
 
@@ -49,6 +51,42 @@ AZenv is a lightweight Go web server that displays environment variables and HTT
 4. Optionally, move to a location in your PATH:
    ```bash
    sudo mv azenv /usr/local/bin/
+   ```
+
+### Using Docker
+
+1. Using Docker Compose (recommended):
+   ```bash
+   # Clone the repository
+   git clone https://github.com/rhamdeew/azenv.git
+   cd azenv
+   
+   # Start the service
+   docker-compose up -d
+   
+   # View logs
+   docker-compose logs -f azenv
+   ```
+
+2. Using Docker directly:
+   ```bash
+   # Build the image
+   docker build -t azenv .
+   
+   # Run HTTP only
+   docker run -d -p 8080:8080 --name azenv azenv
+   
+   # Run with HTTPS and self-signed certificates
+   docker run -d -p 8080:8080 -p 8443:8443 -v ./cert:/app/cert --name azenv azenv ./azenv -ssl -gen-cert
+   ```
+
+3. Docker configuration options:
+   ```bash
+   # Custom ports
+   docker-compose run azenv ./azenv -p 8080 -sp 8443
+   
+   # With Let's Encrypt (requires domain)
+   docker-compose run azenv ./azenv -ssl -lets-encrypt -domain example.com
    ```
 
 ### Installing as a Systemd Service (Linux)
