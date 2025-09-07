@@ -26,8 +26,8 @@ FROM alpine:3.19
 RUN apk --no-cache add ca-certificates
 
 # Create non-root user
-RUN addgroup -g 1001 -S azenv && \
-    adduser -u 1001 -S azenv -G azenv
+RUN addgroup -g 1050 -S azenv && \
+    adduser -u 1050 -S azenv -G azenv
 
 # Create directories for certificates
 RUN mkdir -p /app/cert /app/cert-cache && \
